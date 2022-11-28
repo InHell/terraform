@@ -1,0 +1,95 @@
+# go !
+stages:          # List of stages for jobs, and their order of execution
+  - prepare
+  - plan
+  - deploy
+  - destroy
+
+  
+image:
+  name: hashicorp/terraform:light
+  entrypoint:
+    - '/usr/bin/env'
+    - 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+
+before_script:
+  - export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+  - export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+  - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+  - aws configure set aws_access_key_id "${AWS_ACCESS_KEY_ID}"
+  - aws configure set aws_secret_access_key "${AWS_SECRET_ACCESS_KEY}"
+  - aws configure set default.region "${AWS_DEFAULT_REGION}"
+  - echo "Env for Infrastructure - ${ENV_FOR_DEPLOY}"
+  - terraform --version
+  - terraform init
+  - echo "********Beeeeeeeeep*******"
+## Custom build image SDK version variable +6+7
+variables:
+  AWS_PROFILE: default
+  TF_ROOT: ${CI_PROJECT_DIR}/basic-ec2
+  TF_ARTS: ${CI_PROJECT_DIR}/basic-ec2/arts/
+  TFP: ${TF_ARTS}.tfplan
+  TFS: ${TF_ARTS}.tfstate
+
+cache:
+  paths:
+    - ./basic-ec2/.terraform
+#    - ./basic-ec2/.terraform.lock.hcl
+
+
+prepare-job:       
+  stage: prepare
+  script:
+    - echo " AWS Acces key is = ${AWS_ACCESS_KEY_ID}"
+    - echo " Starting in ${AWS_DEFAULT_REGION} in 3..2..1.."
+
+plan-state-job:   
+  stage: plan
+  script:
+    - cd ./basic-ec2
+    - sleep 1
+    - terraform plan -state=$TFS -out=$TFP
+  artifacts:
+    name: plan-state-job
+    paths:
+      - $TFP
+      - $TFS
+  needs:
+    - prepare-job
+
+deploy-job:      
+  stage: deploy  
+  environment: stage
+  allow_failure: false
+  script:
+    - cd ./basic-ec2
+    - echo "Deploying application..."
+    - ls
+    - terraform apply -state=$TFS -auto-approve -input=false $TFP
+    - echo "Application successfully deployed."
+  artifacts:
+    name: deploy-job
+    paths:
+      - $TFS
+  dependencies:
+    - plan-state-job
+  needs:
+    - plan-state-job
+
+destroy-job: 
+  stage: destroy  
+  environment: stage
+  allow_failure: false
+  script:
+    - cd ./basic-ec2
+    - echo "Kaboooom..."
+    - ls
+    - sleep 3
+    - terraform destroy -state=$TFS -auto-approve
+  dependencies:
+    - deploy-job
+    - plan-state-job
+  needs:
+    - deploy-job
+    - plan-state-job
+  when: manual
